@@ -36,6 +36,14 @@ const globalStyles = `
   @keyframes pulse { 0%,100% { opacity:0.4; } 50% { opacity:1; } }
   @keyframes slideIn { from { opacity:0; transform:translateX(-12px); } to { opacity:1; transform:translateX(0); } }
   @keyframes breathe { 0%,100% { transform:scale(1); opacity:0.6; } 50% { transform:scale(1.08); opacity:1; } }
+  @keyframes speakPulse {
+    0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(167,139,250,0.4); }
+    50% { transform: scale(1.08); box-shadow: 0 0 40px 10px rgba(167,139,250,0.25); }
+  }
+  @keyframes micPulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(252,165,165,0.5); }
+    50% { box-shadow: 0 0 0 14px rgba(252,165,165,0); }
+  }
   .fadeUp { animation: fadeUp 0.6s ease both; }
   .fadeIn { animation: fadeIn 0.5s ease both; }
   .slideIn { animation: slideIn 0.4s ease both; }
@@ -747,28 +755,61 @@ function MoodCheckinScreen({ onSave, onBack }) {
 }
 
 // ═══════════════════════════════════════
-// SCREEN: Chat
+// SCREEN: Chat (with voice support)
 // ═══════════════════════════════════════
+const SpeechRecognition = typeof window !== "undefined"
+  ? (window.SpeechRecognition || window.webkitSpeechRecognition)
+  : null;
+
 function ChatScreen({ profile, moods, sessions, onSaveSession, onBack, onShowCrisis }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [started, setStarted] = useState(false);
+  const [voiceMode, setVoiceMode] = useState(false);
+  const [listening, setListening] = useState(false);
+  const [speaking, setSpeaking] = useState(false);
+  const [transcript, setTranscript] = useState("");
   const scrollRef = useRef(null);
+  const recognitionRef = useRef(null);
+  const audioRef = useRef(null);
 
   const scrollToBottom = () => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
   };
   useEffect(() => { scrollToBottom(); }, [messages, loading]);
 
-  const callAI = useCallback(async (conversationMessages) => {
+  const apiBase = import.meta.env.VITE_API_URL || "";
+
+  const speakText = useCallback(async (text) => {
+    setSpeaking(true);
+    try {
+      const res = await fetch(`${apiBase}/api/tts`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      if (!res.ok) throw new Error("TTS failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(url); };
+      audio.onerror = () => { setSpeaking(false); URL.revokeObjectURL(url); };
+      await audio.play();
+    } catch (err) {
+      console.error("TTS error:", err);
+      setSpeaking(false);
+    }
+  }, [apiBase]);
+
+  const callAI = useCallback(async (conversationMessages, autoSpeak = false) => {
     setLoading(true);
     try {
       const apiMessages = conversationMessages.map(m => ({
         role: m.role === "user" ? "user" : "assistant",
         content: m.text,
       }));
-      const apiBase = import.meta.env.VITE_API_URL || "";
       const response = await fetch(`${apiBase}/api/chat`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -778,24 +819,26 @@ function ChatScreen({ profile, moods, sessions, onSaveSession, onBack, onShowCri
         }),
       });
       const data = await response.json();
-      return data.content?.map(b => b.text || "").join("") || "I'm here. Tell me more.";
+      const text = data.content?.map(b => b.text || "").join("") || "I'm here. Tell me more.";
+      if (autoSpeak) speakText(text);
+      return text;
     } catch (err) {
       console.error(err);
       return "I'm having trouble connecting right now. Can you try again in a moment?";
     } finally {
       setLoading(false);
     }
-  }, [profile, moods, sessions]);
+  }, [profile, moods, sessions, apiBase, speakText]);
 
   useEffect(() => {
     if (!started) {
       setStarted(true);
       (async () => {
-        const reply = await callAI([{ role: "user", text: "Hi, I just opened the app." }]);
+        const reply = await callAI([{ role: "user", text: "Hi, I just opened the app." }], voiceMode);
         setMessages([{ role: "assistant", text: reply, id: Date.now() }]);
       })();
     }
-  }, [started, callAI]);
+  }, [started, callAI, voiceMode]);
 
   useEffect(() => {
     return () => {
@@ -806,32 +849,196 @@ function ChatScreen({ profile, moods, sessions, onSaveSession, onBack, onShowCri
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const handleSend = async () => {
-    if (!input.trim() || loading) return;
-    const text = input.trim();
+  const sendMessage = async (text, speak = false) => {
+    if (!text.trim() || loading) return;
 
-    if (detectCrisis(text)) {
-      onShowCrisis();
-    }
+    if (detectCrisis(text)) onShowCrisis();
 
-    const userMsg = { role: "user", text, id: Date.now() };
+    const userMsg = { role: "user", text: text.trim(), id: Date.now() };
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setInput("");
+    setTranscript("");
 
-    const reply = await callAI(newMessages);
+    const reply = await callAI(newMessages, speak);
     const updated = [...newMessages, { role: "assistant", text: reply, id: Date.now() + 1 }];
     setMessages(updated);
     onSaveSession({ messages: updated, ts: Date.now() });
   };
 
-  const handleBack = () => {
-    if (messages.length > 1) {
-      onSaveSession({ messages, ts: Date.now() });
+  const handleSend = () => sendMessage(input, voiceMode);
+
+  const startListening = () => {
+    if (!SpeechRecognition) return;
+    if (audioRef.current) { audioRef.current.pause(); setSpeaking(false); }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = true;
+    recognition.continuous = false;
+
+    recognition.onstart = () => setListening(true);
+    recognition.onresult = (e) => {
+      const result = Array.from(e.results).map(r => r[0].transcript).join("");
+      setTranscript(result);
+    };
+    recognition.onend = () => {
+      setListening(false);
+      const final = recognitionRef.current?._finalTranscript;
+      if (final?.trim()) sendMessage(final, true);
+    };
+    recognition.onerror = (e) => {
+      console.error("Speech error:", e.error);
+      setListening(false);
+    };
+
+    recognitionRef.current = recognition;
+    recognition.start();
+  };
+
+  const stopListening = () => {
+    if (recognitionRef.current) {
+      recognitionRef.current._finalTranscript = transcript;
+      recognitionRef.current.stop();
     }
+  };
+
+  const handleBack = () => {
+    if (audioRef.current) { audioRef.current.pause(); setSpeaking(false); }
+    if (recognitionRef.current) recognitionRef.current.abort();
+    if (messages.length > 1) onSaveSession({ messages, ts: Date.now() });
     onBack();
   };
 
+  const hasMic = !!SpeechRecognition;
+
+  // Voice mode full-screen view
+  if (voiceMode) {
+    return (
+      <div style={{
+        height: "100vh", display: "flex", flexDirection: "column",
+        maxWidth: 520, margin: "0 auto", position: "relative",
+      }}>
+        <GlowOrb size={400} top="20%" left="15%" opacity={0.12} />
+
+        {/* Header */}
+        <div style={{
+          padding: "16px 20px", display: "flex", alignItems: "center", justifyContent: "space-between",
+          borderBottom: `1px solid ${t.border}`, background: `${t.bg}EE`, backdropFilter: "blur(20px)",
+        }}>
+          <button onClick={handleBack} style={{
+            background: "none", border: "none", color: t.textDim, fontSize: 20,
+          }}>←</button>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <div style={{
+              width: 28, height: 28, borderRadius: 8,
+              background: `linear-gradient(135deg, ${t.purple}, ${t.accent})`,
+              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12,
+            }}>✦</div>
+            <p style={{ fontWeight: 600, fontSize: 15 }}>{APP_NAME}</p>
+          </div>
+          <button onClick={() => setVoiceMode(false)} style={{
+            background: t.bgCard, border: `1px solid ${t.border}`,
+            borderRadius: 10, padding: "6px 12px", color: t.textDim, fontSize: 12,
+          }}>Text mode</button>
+        </div>
+
+        {/* Center orb + status */}
+        <div style={{
+          flex: 1, display: "flex", flexDirection: "column",
+          alignItems: "center", justifyContent: "center", padding: 24, zIndex: 1,
+        }}>
+          {/* Speaking / Listening orb */}
+          <div style={{
+            width: 160, height: 160, borderRadius: "50%",
+            background: speaking
+              ? `radial-gradient(circle, ${t.accent}44 0%, ${t.purple}22 60%, transparent 100%)`
+              : listening
+                ? `radial-gradient(circle, ${t.red}33 0%, ${t.red}11 60%, transparent 100%)`
+                : `radial-gradient(circle, ${t.purple}33 0%, ${t.purpleDark}22 60%, transparent 100%)`,
+            border: `2px solid ${speaking ? t.accent : listening ? t.red : t.purpleDim}44`,
+            display: "flex", alignItems: "center", justifyContent: "center",
+            animation: speaking ? "speakPulse 2s ease-in-out infinite"
+              : listening ? "micPulse 1.5s ease-in-out infinite" : "breathe 4s ease-in-out infinite",
+            transition: "background 0.5s, border-color 0.5s",
+            marginBottom: 32,
+          }}>
+            <span style={{ fontSize: 48 }}>
+              {speaking ? "✦" : listening ? "🎙" : "✦"}
+            </span>
+          </div>
+
+          <p style={{
+            fontFamily: "'Playfair Display', serif", fontSize: 20,
+            color: speaking ? t.accent : listening ? t.red : t.textDim,
+            marginBottom: 8, transition: "color 0.3s",
+          }}>
+            {speaking ? "Speaking..." : listening ? "Listening..." : loading ? "Thinking..." : "Tap to speak"}
+          </p>
+
+          {/* Live transcript */}
+          {(listening || transcript) && (
+            <p style={{
+              color: t.textDim, fontSize: 14, maxWidth: 300,
+              textAlign: "center", fontStyle: "italic", marginBottom: 16,
+              minHeight: 20,
+            }}>
+              {transcript || "..."}
+            </p>
+          )}
+
+          {/* Last AI message */}
+          {messages.length > 0 && !listening && (
+            <div style={{
+              maxWidth: 360, padding: "16px 20px", borderRadius: 20,
+              background: t.bgCard, border: `1px solid ${t.border}`,
+              marginTop: 16, maxHeight: 150, overflowY: "auto",
+            }}>
+              <p style={{ fontSize: 14, lineHeight: 1.6, color: t.textDim }}>
+                {messages[messages.length - 1].text}
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Bottom mic button */}
+        <div style={{
+          padding: "20px 16px 40px",
+          display: "flex", justifyContent: "center", gap: 16, alignItems: "center",
+        }}>
+          {!listening ? (
+            <button onClick={startListening}
+              disabled={loading || speaking}
+              style={{
+                width: 72, height: 72, borderRadius: "50%",
+                background: loading || speaking
+                  ? t.bgCard
+                  : `linear-gradient(135deg, ${t.purple}, ${t.accent})`,
+                border: "none", color: "#fff", fontSize: 28,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                boxShadow: loading || speaking ? "none" : `0 4px 24px ${t.purpleGlow}`,
+                opacity: loading || speaking ? 0.5 : 1,
+                transition: "all 0.3s",
+              }}>
+              🎙
+            </button>
+          ) : (
+            <button onClick={stopListening} style={{
+              width: 72, height: 72, borderRadius: "50%",
+              background: `linear-gradient(135deg, ${t.red}CC, ${t.red})`,
+              border: "none", color: "#fff", fontSize: 20, fontWeight: 700,
+              display: "flex", alignItems: "center", justifyContent: "center",
+              animation: "micPulse 1.5s ease-in-out infinite",
+            }}>
+              ■
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // Text mode (original chat UI with voice toggle)
   return (
     <div style={{
       height: "100vh", display: "flex", flexDirection: "column",
@@ -851,10 +1058,21 @@ function ChatScreen({ profile, moods, sessions, onSaveSession, onBack, onShowCri
           background: `linear-gradient(135deg, ${t.purple}, ${t.accent})`,
           display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16,
         }}>✦</div>
-        <div>
+        <div style={{ flex: 1 }}>
           <p style={{ fontWeight: 600, fontSize: 15 }}>{APP_NAME}</p>
           <p style={{ color: t.green, fontSize: 11 }}>● Online</p>
         </div>
+        {hasMic && (
+          <button onClick={() => setVoiceMode(true)} style={{
+            background: t.bgCard, border: `1px solid ${t.border}`,
+            borderRadius: 10, padding: "6px 12px", color: t.textDim, fontSize: 18,
+            display: "flex", alignItems: "center", gap: 6, transition: "all 0.2s",
+          }}
+            onMouseEnter={e => e.currentTarget.style.borderColor = t.purpleDim}
+            onMouseLeave={e => e.currentTarget.style.borderColor = t.border}>
+            🎙
+          </button>
+        )}
       </div>
 
       {/* Messages */}
