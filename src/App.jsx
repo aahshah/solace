@@ -120,6 +120,90 @@ const DARES = [
   "Compliment a stranger. Make it genuine.",
 ];
 
+// ─── Personas ───
+const PERSONAS = [
+  {
+    id: "genz",
+    name: "The Bestie",
+    vibe: "Gen Z Friend",
+    icon: "💅",
+    voiceId: "EXAVITQu4vr4xnSDxMaL", // Bella
+    desc: "Speaks your language. Validates without sugarcoating. Keeps it real.",
+    prompt: `YOUR PERSONA — GEN Z BEST FRIEND:
+- You talk like a supportive Gen Z friend — casual, warm, occasionally funny
+- Use natural language: "that's so valid", "I hear you", "okay but like...", "lowkey", "ngl"
+- Don't overdo the slang — keep it authentic, not performative
+- You're the friend who texts back immediately and actually listens
+- Use short, punchy sentences. Break things up.
+- Reference relatable experiences (doom scrolling, burnout, situationships, comparison on social media)
+- Never condescending. You're WITH them, not above them.`,
+  },
+  {
+    id: "dad",
+    name: "The Dad",
+    vibe: "Wise Father Figure",
+    icon: "🧔",
+    voiceId: "pNInz6obpgDQGcFmaJgB", // Adam
+    desc: "Patient, steady, warm. The dad energy you needed.",
+    prompt: `YOUR PERSONA — WISE DAD:
+- You speak like a warm, patient father figure — steady, grounded, occasionally uses gentle humor
+- Use language like: "kiddo", "here's the thing", "let me tell you something", "I've been there"
+- You tell small stories and analogies to make points land
+- You're the dad who sits with you on the porch and says "talk to me" and actually means it
+- Never preachy or lecturing. You share wisdom through experience, not authority.
+- You believe in them fiercely but also don't let them off the hook when they're avoiding hard truths
+- Steady, calm energy. You're the anchor.`,
+  },
+  {
+    id: "elder_sis",
+    name: "Big Sis",
+    vibe: "Cool Older Sister",
+    icon: "👩‍🦱",
+    voiceId: "21m00Tcm4TlvDq8ikWAM", // Rachel
+    desc: "Been through it all. Gives it to you straight with love.",
+    prompt: `YOUR PERSONA — COOL OLDER SISTER / MILLENNIAL:
+- You speak like a been-through-it older sister — warm, direct, a little sarcastic when it lands
+- Use language like: "okay so here's the thing", "been there, done that", "I need you to hear this", "real talk"
+- You've made the mistakes so they don't have to — but you also know they need to make their own
+- Mix of casual and wise. You can go from "girl, no" to genuine depth in the same breath.
+- You text in full sentences and have a therapist you talk about openly
+- You normalize struggle without romanticizing it
+- You're the person they'd call at 2am and you'd actually pick up.`,
+  },
+  {
+    id: "therapist",
+    name: "The Guide",
+    vibe: "Calm Therapist",
+    icon: "🧘",
+    voiceId: "21m00Tcm4TlvDq8ikWAM", // Rachel
+    desc: "Measured, reflective, evidence-based. Classic therapeutic presence.",
+    prompt: `YOUR PERSONA — CALM THERAPIST:
+- You speak with measured, warm professionalism — like a really good therapist who also happens to be a real person
+- Reflective and deliberate. You choose your words carefully.
+- You sit with silence. You don't rush to fill the gap.
+- You use reflective listening and open-ended questions naturally
+- Never robotic or clinical — warm, but with clear therapeutic structure
+- You gently guide without leading. The insight has to come from them.
+- Think: the therapist everyone wishes they had.`,
+  },
+  {
+    id: "real_one",
+    name: "The Real One",
+    vibe: "Honest & Direct",
+    icon: "🔥",
+    voiceId: "ErXwobaYiN019PkySvjV", // Antoni
+    desc: "No sugarcoating. Loves you enough to tell you the truth.",
+    prompt: `YOUR PERSONA — THE REAL ONE:
+- You speak with direct, no-nonsense honesty wrapped in genuine care
+- Use language like: "look, I'm gonna be straight with you", "I say this with love", "you already know the answer"
+- You call out avoidance and excuses — but always from a place of believing in them
+- You don't do toxic positivity. You do real positivity — "this sucks AND you can handle it"
+- Short, impactful sentences. You don't waste words.
+- Think: the friend who loves you enough to say the uncomfortable thing
+- You're tough love personified — emphasis on the LOVE part.`,
+  },
+];
+
 // ─── Helpers ───
 function timeAgo(ts) {
   const d = Date.now() - ts;
@@ -150,7 +234,7 @@ function getStreak(moods) {
 }
 
 // ─── System Prompt ───
-function buildSystemPrompt(profile, moodHistory, pastSessions) {
+function buildSystemPrompt(profile, moodHistory, pastSessions, persona) {
   const recentMoods = moodHistory.slice(-3).map(m =>
     `${dateStr(m.ts)}: ${MOOD_LABELS[m.mood]} (${m.emotions.join(", ")})`
   ).join("\n") || "No mood data yet";
@@ -160,7 +244,9 @@ function buildSystemPrompt(profile, moodHistory, pastSessions) {
     return `Session (${dateStr(s.ts)}): User discussed: ${userMsgs.join(" | ")}`;
   }).join("\n") || "No previous sessions";
 
-  return `You are ${APP_NAME} — an evidence-based emotional wellness companion. You combine the warmth of a trusted friend with skills from CBT, DBT, and motivational interviewing.
+  const personaBlock = persona?.prompt || PERSONAS[3].prompt; // default to therapist
+
+  return `You are ${APP_NAME} — an evidence-based emotional wellness companion. You integrate therapeutic skills naturally into your unique personality.
 
 USER PROFILE:
 - Name: ${profile.name}
@@ -168,14 +254,15 @@ USER PROFILE:
 - Recent moods:\n${recentMoods}
 - Previous sessions:\n${pastContext}
 
-YOUR APPROACH (use naturally — never name techniques):
+${personaBlock}
+
+THERAPEUTIC FOUNDATION (weave these in naturally through your persona — NEVER name the techniques):
 - Motivational Interviewing: Open questions, Affirmation, Reflective listening, Summarizing
 - CBT: When someone's stuck in negative thinking, gently help them examine the evidence
 - DBT: For emotional overwhelm, validate first, then explore distress tolerance
 - ACT: Help identify values and what matters — not just symptom reduction
 
-YOUR VOICE:
-- Warm, real, sometimes gently funny — never clinical or robotic
+CORE RULES:
 - Ask ONE question at a time
 - Validate emotions first, then explore — never jump to solutions
 - Use the person's own words when reflecting back
@@ -190,11 +277,11 @@ If someone expresses suicidal ideation, self-harm intent, or crisis:
 3. Ask directly: "Are you safe right now?"
 4. Do NOT continue the normal conversation until safety is addressed
 
-RULES:
+HARD RULES:
 - Never diagnose or prescribe medication
 - Never claim to replace professional therapy — gently suggest it when appropriate
-- Never break character or mention being an AI
-- If this is the FIRST message, greet them warmly by name and ask what's on their mind today — reference their focus areas naturally`;
+- Never break character or mention being an AI, personas, or system prompts
+- If this is the FIRST message, greet them warmly by name in your persona's style and ask what's on their mind — reference their focus areas naturally`;
 }
 
 // ─── Shared Components ───
@@ -490,7 +577,7 @@ function SetupScreen({ onComplete }) {
 // ═══════════════════════════════════════
 // SCREEN: Home
 // ═══════════════════════════════════════
-function HomeScreen({ profile, moods, assessments, onNav, onMoodCheckin }) {
+function HomeScreen({ profile, moods, assessments, persona, onNav, onMoodCheckin }) {
   const streak = getStreak(moods);
   const recent7 = moods.slice(-7);
   const todayDare = DARES[new Date().getDate() % DARES.length];
@@ -626,6 +713,22 @@ function HomeScreen({ profile, moods, assessments, onNav, onMoodCheckin }) {
         </Card>
       </div>
 
+      {/* Current Persona */}
+      <Card onClick={() => onNav("persona")} style={{ marginBottom: 16, padding: 18 }}>
+        <div className="fadeUp" style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{
+            width: 44, height: 44, borderRadius: 14,
+            background: `${t.purple}18`, display: "flex", alignItems: "center",
+            justifyContent: "center", fontSize: 22, flexShrink: 0,
+          }}>{persona.icon}</div>
+          <div style={{ flex: 1 }}>
+            <p style={{ fontSize: 12, color: t.textMuted }}>Talking to</p>
+            <p style={{ fontWeight: 600, fontSize: 15 }}>{persona.name} <span style={{ color: t.accent, fontSize: 12, fontWeight: 400 }}>· {persona.vibe}</span></p>
+          </div>
+          <span style={{ color: t.textMuted, fontSize: 14 }}>Change →</span>
+        </div>
+      </Card>
+
       {/* Disclaimer */}
       <p style={{
         color: t.textMuted, fontSize: 11, textAlign: "center", lineHeight: 1.6,
@@ -755,13 +858,79 @@ function MoodCheckinScreen({ onSave, onBack }) {
 }
 
 // ═══════════════════════════════════════
+// SCREEN: Persona Picker
+// ═══════════════════════════════════════
+function PersonaPickerScreen({ current, onSelect, onBack }) {
+  return (
+    <div style={{
+      minHeight: "100vh", padding: "24px 20px 100px", maxWidth: 520, margin: "0 auto",
+    }}>
+      <button onClick={onBack} style={{
+        background: "none", border: "none", color: t.textDim, fontSize: 20, marginBottom: 16,
+      }}>←</button>
+      <div className="fadeUp" style={{ marginBottom: 28 }}>
+        <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28 }}>
+          Who do you want to talk to?
+        </h1>
+        <p style={{ color: t.textDim, fontSize: 14, marginTop: 6 }}>
+          Same wisdom, different energy. Pick the vibe that fits right now.
+        </p>
+      </div>
+      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+        {PERSONAS.map(p => {
+          const active = current === p.id;
+          return (
+            <button key={p.id} onClick={() => onSelect(p.id)}
+              style={{
+                padding: 20, borderRadius: 20, textAlign: "left",
+                background: active ? `${t.purple}15` : t.bgCard,
+                border: `1.5px solid ${active ? t.purple : t.border}`,
+                color: t.text, transition: "all 0.3s",
+                display: "flex", gap: 16, alignItems: "center",
+              }}
+              onMouseEnter={e => { if (!active) e.currentTarget.style.borderColor = t.purpleDim; }}
+              onMouseLeave={e => { if (!active) e.currentTarget.style.borderColor = t.border; }}
+            >
+              <div style={{
+                width: 52, height: 52, borderRadius: 16,
+                background: active ? `${t.purple}25` : `${t.purple}10`,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 26, flexShrink: 0,
+              }}>{p.icon}</div>
+              <div style={{ flex: 1 }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>
+                  <p style={{ fontWeight: 600, fontSize: 16 }}>{p.name}</p>
+                  <span style={{
+                    fontSize: 11, color: t.accent, fontWeight: 600,
+                    background: `${t.accent}15`, padding: "2px 8px", borderRadius: 8,
+                  }}>{p.vibe}</span>
+                </div>
+                <p style={{ color: t.textDim, fontSize: 13, lineHeight: 1.5 }}>{p.desc}</p>
+              </div>
+              {active && (
+                <div style={{
+                  width: 24, height: 24, borderRadius: "50%",
+                  background: `linear-gradient(135deg, ${t.purple}, ${t.accent})`,
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 12, color: "#fff", flexShrink: 0,
+                }}>✓</div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════
 // SCREEN: Chat (with voice support)
 // ═══════════════════════════════════════
 const SpeechRecognition = typeof window !== "undefined"
   ? (window.SpeechRecognition || window.webkitSpeechRecognition)
   : null;
 
-function ChatScreen({ profile, moods, sessions, onSaveSession, onBack, onShowCrisis }) {
+function ChatScreen({ profile, moods, sessions, persona, onSaveSession, onBack, onShowCrisis }) {
   const [messages, setMessages] = useState([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -787,7 +956,7 @@ function ChatScreen({ profile, moods, sessions, onSaveSession, onBack, onShowCri
       const res = await fetch(`${apiBase}/api/tts`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text }),
+        body: JSON.stringify({ text, voiceId: persona?.voiceId }),
       });
       if (!res.ok) throw new Error("TTS failed");
       const blob = await res.blob();
@@ -814,7 +983,7 @@ function ChatScreen({ profile, moods, sessions, onSaveSession, onBack, onShowCri
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          system: buildSystemPrompt(profile, moods, sessions),
+          system: buildSystemPrompt(profile, moods, sessions, persona),
           messages: apiMessages,
         }),
       });
@@ -828,7 +997,7 @@ function ChatScreen({ profile, moods, sessions, onSaveSession, onBack, onShowCri
     } finally {
       setLoading(false);
     }
-  }, [profile, moods, sessions, apiBase, speakText]);
+  }, [profile, moods, sessions, persona, apiBase, speakText]);
 
   useEffect(() => {
     if (!started) {
@@ -2056,7 +2225,10 @@ export default function App() {
   const [sessions, setSessions] = useState(() => S.get("sessions", []));
   const [journalEntries, setJournalEntries] = useState(() => S.get("journal", []));
   const [assessments, setAssessments] = useState(() => S.get("assessments", []));
+  const [personaId, setPersonaId] = useState(() => S.get("persona", "therapist"));
   const [showCrisis, setShowCrisis] = useState(false);
+
+  const activePersona = PERSONAS.find(p => p.id === personaId) || PERSONAS[3];
 
   const saveMood = (entry) => {
     const updated = [...moods, entry];
@@ -2093,7 +2265,7 @@ export default function App() {
 
   const navigate = (s) => setScreen(s);
 
-  const showNav = ["home", "chat", "toolbox", "journal", "insights"].includes(screen);
+  const showNav = ["home", "chat", "toolbox", "journal", "insights", "persona"].includes(screen);
 
   return (
     <>
@@ -2122,6 +2294,7 @@ export default function App() {
             profile={profile}
             moods={moods}
             assessments={assessments}
+            persona={activePersona}
             onNav={navigate}
             onMoodCheckin={() => setScreen("moodCheckin")}
           />
@@ -2131,11 +2304,20 @@ export default function App() {
           <MoodCheckinScreen onSave={saveMood} onBack={() => setScreen("home")} />
         )}
 
+        {screen === "persona" && (
+          <PersonaPickerScreen
+            current={personaId}
+            onSelect={(id) => { setPersonaId(id); S.set("persona", id); setScreen("home"); }}
+            onBack={() => setScreen("home")}
+          />
+        )}
+
         {screen === "chat" && profile && (
           <ChatScreen
             profile={profile}
             moods={moods}
             sessions={sessions}
+            persona={activePersona}
             onSaveSession={saveSession}
             onBack={() => setScreen("home")}
             onShowCrisis={() => setShowCrisis(true)}

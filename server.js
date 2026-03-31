@@ -48,15 +48,16 @@ app.post("/api/chat", async (req, res) => {
   }
 });
 
-const ELEVENLABS_VOICE_ID = process.env.ELEVENLABS_VOICE_ID || "21m00Tcm4TlvDq8ikWAM"; // "Rachel"
+const DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM";
 
 app.post("/api/tts", async (req, res) => {
   try {
-    const { text } = req.body;
+    const { text, voiceId } = req.body;
     if (!text) return res.status(400).json({ error: "text is required" });
 
+    const vid = voiceId || DEFAULT_VOICE_ID;
     const voiceRes = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}`,
+      `https://api.elevenlabs.io/v1/text-to-speech/${vid}`,
       {
         method: "POST",
         headers: {
