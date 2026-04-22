@@ -52,8 +52,21 @@ const DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM";
 
 app.post("/api/tts", async (req, res) => {
   try {
-    const { text, voiceId } = req.body;
-    if (!text) return res.status(400).json({ error: "text is required" });
+    const body = req.body;
+
+    if (!body || typeof body.text !== "string" || body.text.trim().length === 0) {
+
+      return res.status(400).json({ error: "text is required" });
+
+    }
+
+    if (body.voiceId !== undefined && typeof body.voiceId !== "string") {
+
+      return res.status(400).json({ error: "voiceId must be a string" });
+
+    }
+
+    const { text, voiceId } = body;
 
     const vid = voiceId || DEFAULT_VOICE_ID;
     const voiceRes = await fetch(
