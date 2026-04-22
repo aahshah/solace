@@ -17,7 +17,15 @@ app.get("/", (_req, res) => {
 
 app.post("/api/chat", async (req, res) => {
   try {
-    const { system, messages } = req.body;
+    const body = req.body;
+
+    if (!body || !Array.isArray(body.messages)) {
+
+      return res.status(400).json({ error: "messages must be an array" });
+
+    }
+
+    const { system, messages } = body;
 
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
