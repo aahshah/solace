@@ -5,6 +5,19 @@ import cors from "cors";
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+function requireApiKey(req, res, next) {
+  const expectedApiKey = process.env.API_KEY;
+  if (!expectedApiKey) {
+    return res.status(500).json({ error: "API_KEY is not configured" });
+  }
+
+  if (req.get("x-api-key") !== expectedApiKey) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+
+  next();
+}
+
 app.use(cors({
   origin: true,
   credentials: true,
@@ -15,7 +28,7 @@ app.get("/", (_req, res) => {
   res.json({ status: "ok", service: "solace-api" });
 });
 
-app.post("/api/chat", async (req, res) => {
+app.post("/api/chat", requireApiKey, async (req, res) => {
   try {
     const { system, messages } = req.body;
 
@@ -50,7 +63,7 @@ app.post("/api/chat", async (req, res) => {
 
 const DEFAULT_VOICE_ID = "21m00Tcm4TlvDq8ikWAM";
 
-app.post("/api/tts", async (req, res) => {
+app.post("/api/tts", requireApiKey, async (req, res) => {
   try {
     const { text, voiceId } = req.body;
     if (!text) return res.status(400).json({ error: "text is required" });
